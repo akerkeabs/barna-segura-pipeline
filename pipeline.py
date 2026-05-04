@@ -56,6 +56,14 @@ def clean_data(df): # Ahora recibe el DataFrame directamente
     if "Codi_districte" in df.columns:
         df = df[df["Codi_districte"] != -1]
 
+    # Eliminar filas con valores nulos en columnas geográficas
+    geo_columns = ["Codi_districte", "Nom_districte", "Nom_barri", "Codi_barri"]
+    for col in geo_columns:
+        if col in df.columns:
+            df = df.dropna(subset=[col])
+        else:
+            print(f"Advertencia: La columna '{col}' no se encontró en el DataFrame. Saltando la eliminación de nulos en esta columna.")
+
     # eliminar coordenadas vacías (se añadió una verificación de existencia de columnas)
     if "Latitud" in df.columns and "Longitud" in df.columns:
         df = df.dropna(subset=["Latitud", "Longitud"])
@@ -68,6 +76,17 @@ def clean_data(df): # Ahora recibe el DataFrame directamente
 
     # añadir timestamp de actualización
     df['last_update'] = datetime.now()
+
+    # === Añadir comprobación general de valores nulos ===
+    missing_after_cleaning = df.isnull().sum()
+    missing_after_cleaning = missing_after_cleaning[missing_after_cleaning > 0]
+
+    if not missing_after_cleaning.empty:
+        print("\nADVERTENCIA: ¡Se encontraron valores nulos después de la limpieza!")
+        print(missing_after_cleaning)
+    else:
+        print("No se encontraron valores nulos después de la limpieza.")
+    # ====================================================
 
     return df
 
