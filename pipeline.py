@@ -22,7 +22,7 @@ RESOURCE_IDS_BY_YEAR = {
     2024: "8cfddcbe-3403-4a6c-8897-c13238da900e",
     2025: "796504f6-7602-41a7-82a9-d3bd47e68dee"
 }
-OUTPUT_FILE = "data_cleaned.csv" # Keeping the same output file name for consistency
+OUTPUT_FILE = "data_cleaned.csv"
 
 # =========================
 # 2. DESCARGA DE DATOS (VIA API)
@@ -43,7 +43,7 @@ def fetch_data_from_api(api_url, resource_ids_by_year):
             data = response.json()
             if data['success']:
                 df_year = pd.DataFrame(data['result']['records'])
-                df_year['NK_Any'] = year # Add year column for consistency if not present or to ensure correct year for specific resource
+                df_year['NK_Any'] = year
                 all_data_frames.append(df_year)
                 print(f"    Datos obtenidos para {year}. Filas: {len(df_year)}")
             else:
@@ -63,33 +63,9 @@ def fetch_data_from_api(api_url, resource_ids_by_year):
 # =========================
 def clean_data(df):
     print("Limpiando datos...")
-    # Rename columns to remove prefixes for easier handling, if not already done by API
-    # Assuming the API returns raw column names like '02.Codi_districte'
-    new_column_names = {
-        '01.Numero_expedient': 'Numero_expedient',
-        '02.Codi_districte': 'Codi_districte',
-        '03.Nom_districte': 'Nom_districte',
-        '04.Codi_barri': 'Codi_barri',
-        '05.Nom_barri': 'Nom_barri',
-        '06.Codi_carrer': 'Codi_carrer',
-        '07.Nom_carrer': 'Nom_carrer',
-        '08.Num_postal': 'Num_postal',
-        '09.Descripcio_dia_setmana': 'Descripcio_dia_setmana',
-        '10.NK_Any': 'NK_Any',
-        '11.Mes_any': 'Mes_any',
-        '12.Nom_mes': 'Nom_mes',
-        '13.Dia_mes': 'Dia_mes',
-        '14.Hora_dia': 'Hora_dia',
-        '15.Descripcio_torn': 'Descripcio_torn',
-        '16.Descripcio_causa_mediata': 'Descripcio_causa_mediata',
-        '17.Coordenada_UTM_X_ED50': 'Coordenada_UTM_X_ED50',
-        '18.Coordenada_UTM_Y_ED50': 'Coordenada_UTM_Y_ED50',
-        '19.Longitud_WGS84': 'Longitud_WGS84',
-        '20.Latitud_WGS84': 'Latitud_WGS84'
-    }
-    df = df.rename(columns={old_name: new_name for old_name, new_name in new_column_names.items() if old_name in df.columns})
 
-    print("Columnas después de renombrar:", df.columns.tolist()) # Para ver las columnas en caso de futuros problemas
+
+    print("Columnas después de revisar/confirmar (sin renombrar):", df.columns.tolist()) # Para ver las columnas en caso de futuros problemas
 
     df = df.drop_duplicates()
 
@@ -122,7 +98,7 @@ def clean_data(df):
     if all(col in df.columns for col in date_components):
         # Pad 'Dia_mes' and 'Mes_any' with leading zeros if they are not already two digits
         df['Dia_mes'] = df['Dia_mes'].astype(str).str.zfill(2)
-        df['Mes_any'] = df['Mes_any'].astype(str).str.zfill(2) 
+        df['Mes_any'] = df['Mes_any'].astype(str).str.zfill(2)
         df['Hora_dia'] = df['Hora_dia'].astype(str).str.zfill(2) # Ensure 2 digits for hour
 
         # Convert 'Mes_any' text to month number if it's month name
