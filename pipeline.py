@@ -53,11 +53,3 @@ def run_pipeline():
 
 if __name__ == "__main__":
     run_pipeline()
-
-import os
-
-os.system("git config --global user.name 'github-actions'")
-os.system("git config --global user.email 'actions@github.com'")
-os.system("git add data_cleaned.csv")
-os.system("git commit -m 'Update dataset'")
-os.system("git push")
