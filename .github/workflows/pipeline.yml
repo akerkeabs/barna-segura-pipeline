@@ -26,3 +26,11 @@ jobs:
 
       - name: Ejecutar script
         run: python pipeline.py
+
+      - name: Commit y push del dataset
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add data_cleaned.csv
+          git commit -m "Update dataset" || echo "No changes"
+          git push
