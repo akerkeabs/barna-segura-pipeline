@@ -15,46 +15,93 @@ from datetime import datetime
 # 1. CONFIGURACIÓN
 # =========================
 API_BASE_URL = "https://opendata-ajuntament.barcelona.cat/data/api/action/datastore_search"
-RESOURCE_ID = "2ccf81f5-e913-41f1-85ab-3f8a6be74855" # Extraído de la URL anterior
-OUTPUT_FILE = "data_cleaned.csv"
+# Updated RESOURCE_IDS for 2022, 2023, 2024, 2025
+RESOURCE_IDS_BY_YEAR = {
+    2022: "87a8aeda-d3eb-4ba5-bcad-b9ab0c296df5",
+    2023: "5a040155-38b3-4b19-a4b0-c84a0618d363",
+    2024: "8cfddcbe-3403-4a6c-8897-c13238da900e",
+    2025: "796504f6-7602-41a7-82a9-d3bd47e68dee"
+}
+OUTPUT_FILE = "data_cleaned.csv" # Keeping the same output file name for consistency
 
 # =========================
 # 2. DESCARGA DE DATOS (VIA API)
 # =========================
-def fetch_data_from_api(api_url, resource_id):
-    print("Obteniendo datos de la API...")
-    params = {'resource_id': resource_id, 'limit': 32000} # Se puede ajustar el límite o implementar paginación si hay muchos datos
+def fetch_data_from_api(api_url, resource_ids_by_year):
+    print("Obteniendo datos de la API para los años especificados...")
+    all_data_frames = []
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
-    response = requests.get(api_url, params=params, headers=headers)
 
-    if response.status_code == 200:
-        data = response.json()
-        if data['success']:
-            df = pd.DataFrame(data['result']['records'])
-            print(f"Datos obtenidos de la API. Filas: {len(df)}")
-            return df
+    for year, resource_id in resource_ids_by_year.items():
+        print(f"  - Obteniendo datos para el año {year} (Resource ID: {resource_id})...")
+        params = {'resource_id': resource_id, 'limit': 32000} # Adjust limit or implement pagination if needed
+        response = requests.get(api_url, params=params, headers=headers)
+
+        if response.status_code == 200:
+            data = response.json()
+            if data['success']:
+                df_year = pd.DataFrame(data['result']['records'])
+                df_year['NK_Any'] = year # Add year column for consistency if not present or to ensure correct year for specific resource
+                all_data_frames.append(df_year)
+                print(f"    Datos obtenidos para {year}. Filas: {len(df_year)}")
+            else:
+                print(f"    Error en la respuesta de la API para {year}: {data['error']}")
         else:
-            raise Exception(f"Error en la respuesta de la API: {data['error']}")
-    else:
-        raise Exception(f"Error al conectar con la API: {response.status_code} - {response.text[:200]}")
+            print(f"    Error al conectar con la API para {year}: {response.status_code} - {response.text[:200]}")
+
+    if not all_data_frames:
+        raise Exception("No se pudieron obtener datos de ninguna de las fuentes.")
+
+    df_combined = pd.concat(all_data_frames, ignore_index=True)
+    print(f"Total de datos obtenidos de la API. Filas: {len(df_combined)}")
+    return df_combined
 
 # =========================
 # 3. LIMPIEZA DE DATOS
 # =========================
-def clean_data(df): # Ahora recibe el DataFrame directamente
+def clean_data(df):
     print("Limpiando datos...")
-    print(df.columns) # Para ver las columnas en caso de futuros problemas
+    # Rename columns to remove prefixes for easier handling, if not already done by API
+    # Assuming the API returns raw column names like '02.Codi_districte'
+    new_column_names = {
+        '01.Numero_expedient': 'Numero_expedient',
+        '02.Codi_districte': 'Codi_districte',
+        '03.Nom_districte': 'Nom_districte',
+        '04.Codi_barri': 'Codi_barri',
+        '05.Nom_barri': 'Nom_barri',
+        '06.Codi_carrer': 'Codi_carrer',
+        '07.Nom_carrer': 'Nom_carrer',
+        '08.Num_postal': 'Num_postal',
+        '09.Descripcio_dia_setmana': 'Descripcio_dia_setmana',
+        '10.NK_Any': 'NK_Any',
+        '11.Mes_any': 'Mes_any',
+        '12.Nom_mes': 'Nom_mes',
+        '13.Dia_mes': 'Dia_mes',
+        '14.Hora_dia': 'Hora_dia',
+        '15.Descripcio_torn': 'Descripcio_torn',
+        '16.Descripcio_causa_mediata': 'Descripcio_causa_mediata',
+        '17.Coordenada_UTM_X_ED50': 'Coordenada_UTM_X_ED50',
+        '18.Coordenada_UTM_Y_ED50': 'Coordenada_UTM_Y_ED50',
+        '19.Longitud_WGS84': 'Longitud_WGS84',
+        '20.Latitud_WGS84': 'Latitud_WGS84'
+    }
+    df = df.rename(columns={old_name: new_name for old_name, new_name in new_column_names.items() if old_name in df.columns})
+
+    print("Columnas después de renombrar:", df.columns.tolist()) # Para ver las columnas en caso de futuros problemas
 
     df = df.drop_duplicates()
 
-    # eliminar datos no válidos
+    # Eliminar datos no válidos
     if "Nom_districte" in df.columns:
         df = df[df["Nom_districte"] != "Desconegut"]
 
     if "Codi_districte" in df.columns:
+        # Ensure 'Codi_districte' is numeric before comparison
+        df["Codi_districte"] = pd.to_numeric(df["Codi_districte"], errors='coerce')
         df = df[df["Codi_districte"] != -1]
+        df = df.dropna(subset=["Codi_districte"]) # Drop rows where conversion to numeric failed
 
     # Eliminar filas con valores nulos en columnas geográficas
     geo_columns = ["Codi_districte", "Nom_districte", "Nom_barri", "Codi_barri"]
@@ -64,17 +111,44 @@ def clean_data(df): # Ahora recibe el DataFrame directamente
         else:
             print(f"Advertencia: La columna '{col}' no se encontró en el DataFrame. Saltando la eliminación de nulos en esta columna.")
 
-    # eliminar coordenadas vacías (se añadió una verificación de existencia de columnas)
-    if "Latitud" in df.columns and "Longitud" in df.columns:
-        df = df.dropna(subset=["Latitud", "Longitud"])
+    # Eliminar coordenadas vacías
+    if "Latitud_WGS84" in df.columns and "Longitud_WGS84" in df.columns:
+        df = df.dropna(subset=["Latitud_WGS84", "Longitud_WGS84"])
     else:
-        print("Advertencia: Las columnas 'Latitud' o 'Longitud' no se encontraron en el DataFrame. Saltando la eliminación de nulos en estas columnas.")
+        print("Advertencia: Las columnas 'Latitud_WGS84' o 'Longitud_WGS84' no se encontraron en el DataFrame. Saltando la eliminación de nulos en estas columnas.")
 
-    # convertir fecha
-    if "Data" in df.columns:
-        df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
+    # Convertir fecha y hora
+    date_components = ["NK_Any", "Mes_any", "Dia_mes", "Hora_dia"]
+    if all(col in df.columns for col in date_components):
+        # Pad 'Dia_mes' and 'Mes_any' with leading zeros if they are not already two digits
+        df['Dia_mes'] = df['Dia_mes'].astype(str).str.zfill(2)
+        df['Mes_any'] = df['Mes_any'].astype(str).str.zfill(2) 
+        df['Hora_dia'] = df['Hora_dia'].astype(str).str.zfill(2) # Ensure 2 digits for hour
 
-    # añadir timestamp de actualización
+        # Convert 'Mes_any' text to month number if it's month name
+        month_map = {
+            'gener': '01', 'febrer': '02', 'març': '03', 'abril': '04', 'maig': '05', 'juny': '06',
+            'juliol': '07', 'agost': '08', 'setembre': '09', 'octubre': '10', 'novembre': '11', 'desembre': '12'
+        }
+        # Check if 'Mes_any' contains month names, if so, map them
+        if df['Mes_any'].astype(str).str.isalpha().any():
+            df['Mes_num'] = df['Mes_any'].astype(str).str.lower().map(month_map).fillna(df['Mes_any'])
+            df['Mes_num'] = df['Mes_num'].astype(str).str.zfill(2)
+        else:
+            df['Mes_num'] = df['Mes_any'].astype(str).str.zfill(2)
+
+        # Combine into a single string for datetime conversion
+        df["Fecha_Hora_Accidente_Str"] = df["NK_Any"].astype(str) + '-' + \
+                                       df["Mes_num"].astype(str) + '-' + \
+                                       df["Dia_mes"].astype(str) + ' ' + \
+                                       df["Hora_dia"].astype(str) + ':00:00' # Assuming minutes and seconds are 00
+
+        df["Fecha_Hora_Accidente"] = pd.to_datetime(df["Fecha_Hora_Accidente_Str"], errors="coerce")
+        df = df.drop(columns=["Fecha_Hora_Accidente_Str", "Mes_num"], errors='ignore')
+    else:
+        print("Advertencia: No se encontraron todas las columnas de fecha/hora ('NK_Any', 'Mes_any', 'Dia_mes', 'Hora_dia') en el DataFrame. No se creó la columna de fecha.")
+
+    # Añadir timestamp de actualización
     df['last_update'] = datetime.now()
 
     # === Añadir comprobación general de valores nulos ===
@@ -102,7 +176,7 @@ def save_data(df, output_file):
 # =========================
 def run_pipeline():
     # Obtener datos usando la API
-    df_raw = fetch_data_from_api(API_BASE_URL, RESOURCE_ID)
+    df_raw = fetch_data_from_api(API_BASE_URL, RESOURCE_IDS_BY_YEAR)
     df_cleaned = clean_data(df_raw) # Pasar el DataFrame a clean_data
     save_data(df_cleaned, OUTPUT_FILE)
     print("Pipeline completado")
