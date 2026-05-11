@@ -34,7 +34,7 @@ def fetch_data_from_api(api_url, resource_ids_by_year):
             data = response.json()
             if data['success']:
                 df_year = pd.DataFrame(data['result']['records'])
-                df_year['NK_Any'] = year
+                df_year['nk_Any'] = year # This creates the reliable nk_Any
                 all_data_frames.append(df_year)
                 print(f"    Datos obtenidos para {year}. Filas: {len(df_year)}")
             else:
@@ -55,8 +55,7 @@ def fetch_data_from_api(api_url, resource_ids_by_year):
 def clean_data(df):
     print("Limpiando datos...")
 
-
-    print("Columnas después de revisar/confirmar (sin renombrar):", df.columns.tolist()) # Para ver las columnas en caso de futuros problemas
+    print("Columnas antes de la limpieza detallada:", df.columns.tolist())
 
     df = df.drop_duplicates()
 
@@ -77,6 +76,61 @@ def clean_data(df):
     else:
         print("Advertencia: No se encontraron las columnas de causa para unificar.")
 
+    # Unificar 'Numero_expedient' y 'Número_expedient'
+    if 'Numero_expedient' in df.columns and 'Número_expedient' in df.columns:
+        df['Numero_expedient_unified'] = df['Numero_expedient'].fillna(df['Número_expedient'])
+        df = df.drop(columns=['Numero_expedient', 'Número_expedient'], errors='ignore')
+        df = df.rename(columns={'Numero_expedient_unified': 'numero_expedient'})
+        print("Unificadas 'Numero_expedient' y 'Número_expedient' en 'numero_expedient'.")
+    elif 'Numero_expedient' in df.columns:
+        df = df.rename(columns={'Numero_expedient': 'numero_expedient'})
+        print("Renombrada 'Numero_expedient' a 'numero_expedient'.")
+    elif 'Número_expedient' in df.columns: 
+        df = df.rename(columns={'Número_expedient': 'numero_expedient'})
+        print("Renombrada 'Número_expedient' a 'numero_expedient'.")
+
+    # Handle Nk_Any (original from API) and nk_Any (generated)
+    # If the generated 'nk_Any' exists, drop any other 'Nk_Any' variations
+    if 'nk_Any' in df.columns:
+        if 'NK_Any' in df.columns and 'NK_Any' != 'nk_Any': # Ensure we don't drop the one we just made if there's a case issue
+            df = df.drop(columns=['NK_Any'], errors='ignore')
+            print("Eliminada columna 'NK_Any' (capital K) en favor de 'nk_Any' (generada).")
+        if 'Nk_Any' in df.columns and 'Nk_Any' != 'nk_Any': # Original from API
+            df = df.drop(columns=['Nk_Any'], errors='ignore')
+            print("Eliminada columna 'Nk_Any' (original del API) en favor de 'nk_Any' (generada).")
+    elif 'NK_Any' in df.columns: # If generated one is named NK_Any, rename it to nk_Any
+        df = df.rename(columns={'NK_Any': 'nk_Any'})
+        print("Renombrada 'NK_Any' a 'nk_Any' para consistencia.")
+        if 'Nk_Any' in df.columns: # Original from API
+            df = df.drop(columns=['Nk_Any'], errors='ignore')
+            print("Eliminada columna 'Nk_Any' (original del API) en favor de 'nk_Any' (generada).")
+    elif 'Nk_Any' in df.columns: # If only original Nk_Any exists, use it
+        df = df.rename(columns={'Nk_Any': 'nk_Any'})
+        print("Renombrada 'Nk_Any' a 'nk_Any' para consistencia.")
+
+
+    # Eliminar columnas UTM no necesarias
+    utm_cols = ['Coordenada_UTM_X_ED50', 'Coordenada_UTM_Y_ED50']
+    cols_to_drop_now = [col for col in utm_cols if col in df.columns]
+    if cols_to_drop_now:
+        df = df.drop(columns=cols_to_drop_now, errors='ignore')
+        print(f"Eliminadas columnas UTM: {', '.join(cols_to_drop_now)}.")
+
+    # Manejar Latitud/Longitud
+    # 1. Eliminar 'Latitud' y 'Longitud' (las originales) si son completamente nulas
+    for col in ['Latitud', 'Longitud']:
+        if col in df.columns and df[col].isnull().all():
+            df = df.drop(columns=[col])
+            print(f"Columna '{col}' eliminada por contener solo valores nulos (original).")
+
+    # 2. Renombrar 'Latitud_WGS84' y 'Longitud_WGS84' a 'Latitud' y 'Longitud'
+    if 'Latitud_WGS84' in df.columns:
+        df = df.rename(columns={'Latitud_WGS84': 'Latitud'})
+        print("Renombrada 'Latitud_WGS84' a 'Latitud'.")
+    if 'Longitud_WGS84' in df.columns:
+        df = df.rename(columns={'Longitud_WGS84': 'Longitud'})
+        print("Renombrada 'Longitud_WGS84' a 'Longitud'.")
+
 
     # Eliminar datos no válidos
     if "Nom_districte" in df.columns:
@@ -88,28 +142,16 @@ def clean_data(df):
         df = df[df["Codi_districte"] != -1]
         df = df.dropna(subset=["Codi_districte"]) # Drop rows where conversion to numeric failed
 
-    # Eliminar filas con valores nulos en columnas geográficas
-    geo_columns = ["Codi_districte", "Nom_districte", "Nom_barri", "Codi_barri"]
+    # Eliminar filas con valores nulos en columnas geográficas (actualizado para nuevas Lat/Lon)
+    geo_columns = ["Codi_districte", "Nom_districte", "Nom_barri", "Codi_barri", "Latitud", "Longitud"]
     for col in geo_columns:
         if col in df.columns:
             df = df.dropna(subset=[col])
         else:
             print(f"Advertencia: La columna '{col}' no se encontró en el DataFrame. Saltando la eliminación de nulos en esta columna.")
 
-    # Eliminar coordenadas 'Latitud' y 'Longitud' si están completamente vacías
-    for col in ['Latitud', 'Longitud']:
-        if col in df.columns and df[col].isnull().all():
-            df = df.drop(columns=[col])
-            print(f"Columna '{col}' eliminada por contener solo valores nulos.")
-
-    # Eliminar coordenadas vacías WGS84
-    if "Latitud_WGS84" in df.columns and "Longitud_WGS84" in df.columns:
-        df = df.dropna(subset=["Latitud_WGS84", "Longitud_WGS84"])
-    else:
-        print("Advertencia: Las columnas 'Latitud_WGS84' o 'Longitud_WGS84' no se encontraron en el DataFrame. Saltando la eliminación de nulos en estas columnas.")
-
     # Convertir fecha y hora
-    date_components = ["NK_Any", "Mes_any", "Dia_mes", "Hora_dia"]
+    date_components = ["nk_Any", "Mes_any", "Dia_mes", "Hora_dia"] # Make sure nk_Any is used here
     if all(col in df.columns for col in date_components):
         # Pad 'Dia_mes' and 'Mes_any' with leading zeros if they are not already two digits
         df['Dia_mes'] = df['Dia_mes'].astype(str).str.zfill(2)
@@ -129,7 +171,7 @@ def clean_data(df):
             df['Mes_num'] = df['Mes_any'].astype(str).str.zfill(2)
 
         # Combine into a single string for datetime conversion
-        df["Fecha_Hora_Accidente_Str"] = df["NK_Any"].astype(str) + '-' + \
+        df["Fecha_Hora_Accidente_Str"] = df["nk_Any"].astype(str) + '-' + \
                                        df["Mes_num"].astype(str) + '-' + \
                                        df["Dia_mes"].astype(str) + ' ' + \
                                        df["Hora_dia"].astype(str) + ':00:00' # Assuming minutes and seconds are 00
@@ -137,7 +179,7 @@ def clean_data(df):
         df["Fecha_Hora_Accidente"] = pd.to_datetime(df["Fecha_Hora_Accidente_Str"], errors="coerce")
         df = df.drop(columns=["Fecha_Hora_Accidente_Str", "Mes_num"], errors='ignore')
     else:
-        print("Advertencia: No se encontraron todas las columnas de fecha/hora ('NK_Any', 'Mes_any', 'Dia_mes', 'Hora_dia') en el DataFrame. No se creó la columna de fecha.")
+        print("Advertencia: No se encontraron todas las columnas de fecha/hora ('nk_Any', 'Mes_any', 'Dia_mes', 'Hora_dia') en el DataFrame. No se creó la columna de fecha.")
 
     # Añadir timestamp de actualización
     df['last_update'] = datetime.now()
